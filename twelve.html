@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Twelve — Recovery Toolkit</title>
+
+  <!-- Tailwind CSS (JIT via CDN — supports arbitrary values) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel (transpiles JSX in-browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* ─── animate-in utilities (Tailwind CDN doesn't include tailwindcss-animate) ─ */
+    @keyframes slideUp   { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes slideDown { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes fadeIn    { from { opacity:0; } to { opacity:1; } }
+    @keyframes zoomIn    { from { opacity:0; transform:scale(.95); } to { opacity:1; transform:scale(1); } }
+
+    .animate-in { animation-fill-mode: both; }
+    .slide-in-from-bottom-5,
+    .slide-in-from-bottom-2 { animation-name: slideUp; }
+    .slide-in-from-top-2    { animation-name: slideDown; }
+    .zoom-in-95             { animation-name: zoomIn; }
+    .fade-in                { animation-name: fadeIn; }
+
+    /* Override duration/delay for animate-in (Tailwind CDN handles transition-duration, not animation-duration) */
+    .animate-in.duration-200 { animation-duration: 0.2s; }
+    .animate-in.duration-300 { animation-duration: 0.3s; }
+    .animate-in.duration-500 { animation-duration: 0.5s; }
+    .animate-in.delay-100    { animation-delay: 0.1s; }
+    .animate-in.delay-200    { animation-delay: 0.2s; }
+    .animate-in.delay-300    { animation-delay: 0.3s; }
+
+    /* Custom scrollbar */
+    .custom-scrollbar::-webkit-scrollbar       { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+    /* Safe area for notched phones */
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+    /* Line clamp */
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body class="bg-slate-950">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ─── INLINE ICON SYSTEM (replaces lucide-react) ──────────────────────────────
+    const Svg = ({ d, size = 24, className = "", fill = "none", sw = 2 }) => (
+      <svg
+        width={size} height={size} viewBox="0 0 24 24"
+        fill={fill} stroke="currentColor" strokeWidth={sw}
+        strokeLinecap="round" strokeLinejoin="round"
+        className={className}
+        style={{ display: "inline-block", flexShrink: 0, verticalAlign: "middle" }}
+      >
+        {(Array.isArray(d) ? d : [d]).map((p, i) => <path key={i} d={p} />)}
+      </svg>
+    );
+
+    const Heart        = ({ size, fill = "none", className }) =>
+      <Svg size={size} fill={fill} className={className}
+        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />;
+    const Share2       = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M8.59 13.51l6.83 3.98","M15.41 6.51l-6.82 3.98",
+            "M21 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+            "M9 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+            "M21 19a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"]} />;
+    const X            = ({ size, className }) =>
+      <Svg size={size} className={className} d={["M18 6 6 18","M6 6l12 12"]} />;
+    const ChevronRight = ({ size, className }) =>
+      <Svg size={size} className={className} d="M9 18l6-6-6-6" />;
+    const BookOpen     = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z",
+            "M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"]} />;
+    const Shield       = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />;
+    const PenTool      = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M12 19l7-7 3 3-7 7-3-3z",
+            "M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z",
+            "M2 2l7.586 7.586","M11 11l-1 1"]} />;
+    const Feather      = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z",
+            "M16 8L2 22","M17.5 15H9"]} />;
+    const Trash2       = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M3 6h18","M19 6l-1 14H6L5 6","M8 6V4h8v2","M10 11v6","M14 11v6"]} />;
+    const CheckCircle  = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M22 11.08V12a10 10 0 1 1-5.93-9.14","M22 4 12 14.01l-3-3"]} />;
+    const Mic          = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z",
+            "M19 10v2a7 7 0 0 1-14 0v-2","M12 19v4","M8 23h8"]} />;
+    const Gift         = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M20 12v10H4V12","M22 7H2v5h20V7z","M12 22V7",
+            "M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z",
+            "M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"]} />;
+    const Phone        = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />;
+    const Search       = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M11 17.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z","M21 21l-4.35-4.35"]} />;
+    const Wind         = ({ size, className }) =>
+      <Svg size={size} className={className}
+        d={["M9.59 4.59A2 2 0 1 1 11 8H2",
+            "M10.59 19.41A2 2 0 1 0 14 16H2",
+            "M15.73 3.73A2.5 2.5 0 1 1 19.5 12H2"]} />;
+
+    // ─── DATA ─────────────────────────────────────────────────────────────────────
+    const STEPS_DATA = [
+      {
+        id: 1, title: "Honesty",
+        step: "We admitted we were powerless over our addiction - that our lives had become unmanageable.",
+        tradition: "Our common welfare should come first; personal recovery depends upon unity.",
+        toolType: "journal", toolTitle: "Powerlessness Journal",
+        toolDesc: "List three things today that you tried to control but couldn't."
+      },
+      {
+        id: 2, title: "Hope",
+        step: "Came to believe that a Power greater than ourselves could restore us to sanity.",
+        tradition: "For our group purpose there is but one ultimate authority - a loving God as He may express Himself in our group conscience.",
+        toolType: "sanity_check", toolTitle: "Sanity Restorer",
+        toolDesc: "When panic sets in, use these emergency anchors."
+      },
+      {
+        id: 3, title: "Surrender",
+        step: "Made a decision to turn our will and our lives over to the care of God as we understood Him.",
+        tradition: "The only requirement for membership is a desire to stop using/drinking.",
+        toolType: "god_box", toolTitle: "The God Box",
+        toolDesc: "Type a worry below and 'send it away'. We won't save it. It's gone."
+      },
+      {
+        id: 4, title: "Courage",
+        step: "Made a searching and fearless moral inventory of ourselves.",
+        tradition: "Each group should be autonomous except in matters affecting other groups or the whole.",
+        toolType: "list_builder", toolTitle: "Resentment List",
+        toolDesc: "Who helps you? Who hurts you? List them without judgment."
+      },
+      {
+        id: 5, title: "Integrity",
+        step: "Admitted to God, to ourselves, and to another human being the exact nature of our wrongs.",
+        tradition: "Each group has but one primary purpose-to carry its message to the addict who still suffers.",
+        toolType: "confession_prompt", toolTitle: "Speaking Truth",
+        toolDesc: "Prepare your words. What is the hardest thing to say out loud?"
+      },
+      {
+        id: 6, title: "Willingness",
+        step: "Were entirely ready to have God remove all these defects of character.",
+        tradition: "An AA group ought never endorse, finance, or lend the name to any related facility or outside enterprise.",
+        toolType: "defect_toggle", toolTitle: "Character Drop",
+        toolDesc: "Select the weights you are ready to drop today."
+      },
+      {
+        id: 7, title: "Humility",
+        step: "Humbly asked Him to remove our shortcomings.",
+        tradition: "Every group ought to be fully self-supporting, declining outside contributions.",
+        toolType: "humility_card", toolTitle: "Humility Focus",
+        toolDesc: "A simple mantra for the moment."
+      },
+      {
+        id: 8, title: "Love",
+        step: "Made a list of all persons we had harmed, and became willing to make amends to them all.",
+        tradition: "The program should remain forever nonprofessional, but our service centers may employ special workers.",
+        toolType: "amends_list", toolTitle: "Amends Planner",
+        toolDesc: "Add names to your willingness list."
+      },
+      {
+        id: 9, title: "Discipline",
+        step: "Made direct amends to such people wherever possible, except when to do so would injure them or others.",
+        tradition: "The program, as such, ought never be organized; but we may create service boards or committees.",
+        toolType: "action_tracker", toolTitle: "Action Tracker",
+        toolDesc: "Mark off the hard conversations you've had."
+      },
+      {
+        id: 10, title: "Perseverance",
+        step: "Continued to take personal inventory and when we were wrong promptly admitted it.",
+        tradition: "The program has no opinion on outside issues; hence the name ought never be drawn into public controversy.",
+        toolType: "daily_check", toolTitle: "Spot Check",
+        toolDesc: "A quick nightly review."
+      },
+      {
+        id: 11, title: "Spirituality",
+        step: "Sought through prayer and meditation to improve our conscious contact with God as we understood Him.",
+        tradition: "Our public relations policy is based on attraction rather than promotion; we need always maintain personal anonymity.",
+        toolType: "breathing", toolTitle: "Two-Minute Pause",
+        toolDesc: "Breathe in. Breathe out. Center yourself."
+      },
+      {
+        id: 12, title: "Service",
+        step: "Having had a spiritual awakening as the result of these steps, we tried to carry this message.",
+        tradition: "Anonymity is the spiritual foundation of all our traditions, ever reminding us to place principles before personalities.",
+        toolType: "share_card", toolTitle: "Carry The Message",
+        toolDesc: "Who needs a check-in today?"
+      }
+    ];
+
+    // ─── MICRO-COMPONENTS (Tools) ─────────────────────────────────────────────────
+
+    const BreathingTool = () => {
+      const [active, setActive] = useState(false);
+      const [text, setText] = useState("Ready?");
+
+      useEffect(() => {
+        if (!active) return;
+        const cycle = [
+          { t: "Inhale...", d: 4000 },
+          { t: "Hold...",   d: 4000 },
+          { t: "Exhale...", d: 4000 },
+          { t: "Rest...",   d: 2000 }
+        ];
+        let step = 0;
+        let timer = null;
+        const runCycle = () => {
+          setText(cycle[step].t);
+          timer = setTimeout(() => {
+            step = (step + 1) % cycle.length;
+            runCycle();
+          }, cycle[step].d);
+        };
+        runCycle();
+        return () => clearTimeout(timer);
+      }, [active]);
+
+      return (
+        <div className="flex flex-col items-center justify-center p-6 bg-slate-800/50 rounded-xl border border-slate-700">
+          <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-[4000ms] ${active ? 'bg-indigo-500/20 scale-110 shadow-[0_0_30px_rgba(99,102,241,0.3)] border-2 border-indigo-500/30' : 'bg-slate-700 scale-100 border-2 border-slate-600'}`}>
+            <span className="text-xl font-medium text-slate-200 animate-pulse">{active ? text : "Start"}</span>
+          </div>
+          <button
+            onClick={() => { setActive(!active); setText("Ready?"); }}
+            className={`mt-6 px-8 py-3 rounded-full font-medium transition-all transform active:scale-95 ${active ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}`}
+          >
+            {active ? "End Session" : "Begin Meditation"}
+          </button>
+        </div>
+      );
+    };
+
+    const ListBuilder = ({ placeholder, storageKey }) => {
+      const [items, setItems] = useState(() => {
+        try {
+          const saved = localStorage.getItem(storageKey);
+          return saved ? JSON.parse(saved) : [];
+        } catch(e) { return []; }
+      });
+      const [input, setInput] = useState("");
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+      }, [items, storageKey]);
+
+      const add = () => {
+        if (!input.trim()) return;
+        setItems([{ id: Date.now(), text: input, done: false }, ...items]);
+        setInput("");
+        inputRef.current?.focus();
+      };
+
+      const toggle = (id) => setItems(items.map(i => i.id === id ? { ...i, done: !i.done } : i));
+      const remove = (id) => setItems(items.filter(i => i.id !== id));
+
+      return (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+              placeholder={placeholder}
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+            />
+            <button
+              onClick={add}
+              disabled={!input.trim()}
+              className="bg-indigo-600 disabled:opacity-50 disabled:bg-slate-700 px-4 rounded-lg text-white hover:bg-indigo-500 transition-colors"
+            >
+              <ChevronRight size={24} />
+            </button>
+          </div>
+          <ul className="space-y-2 max-h-[40vh] overflow-y-auto pr-1 custom-scrollbar">
+            {items.map(item => (
+              <li key={item.id} className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg group animate-in slide-in-from-top-2 duration-200">
+                <button
+                  onClick={() => toggle(item.id)}
+                  className={`mt-0.5 p-1 rounded-full border shrink-0 transition-colors ${item.done ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'border-slate-600 text-transparent hover:border-slate-400'}`}
+                >
+                  <CheckCircle size={18} />
+                </button>
+                <span className={`flex-1 pt-0.5 break-words text-sm sm:text-base ${item.done ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                  {item.text}
+                </span>
+                <button
+                  onClick={() => remove(item.id)}
+                  className="mt-0.5 text-slate-600 hover:text-red-400 p-1 rounded-md hover:bg-slate-700/50 transition-colors"
+                  aria-label="Delete item"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </li>
+            ))}
+            {items.length === 0 && (
+              <li className="text-center text-slate-600 text-sm py-4 italic">
+                Your list is empty. Start writing above.
+              </li>
+            )}
+          </ul>
+        </div>
+      );
+    };
+
+    const GodBox = () => {
+      const [worry, setWorry] = useState("");
+      const [sent, setSent] = useState(false);
+
+      const release = () => {
+        if (!worry) return;
+        setSent(true);
+        setTimeout(() => { setWorry(""); setSent(false); }, 2500);
+      };
+
+      return (
+        <div className="relative overflow-hidden p-1 bg-slate-800 rounded-xl border border-slate-700">
+          {sent ? (
+            <div className="h-48 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500">
+              <Feather className="text-indigo-400 mb-4 animate-bounce" size={32} />
+              <p className="text-lg font-medium text-slate-200">Released.</p>
+              <p className="text-sm text-slate-400">It is no longer yours to carry.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col h-full">
+              <textarea
+                className="w-full bg-slate-900 border-none rounded-t-lg p-4 text-slate-300 placeholder-slate-600 resize-none h-32 focus:outline-none focus:ring-0 text-base"
+                placeholder="Type your worry, fear, or obsession here..."
+                value={worry}
+                onChange={(e) => setWorry(e.target.value)}
+              />
+              <button
+                onClick={release}
+                disabled={!worry}
+                className="w-full py-4 bg-indigo-600 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed hover:bg-indigo-500 text-white font-medium rounded-b-lg transition-all active:bg-indigo-700"
+              >
+                Let It Go
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const DefectToggle = () => {
+      const defects = ["Pride","Greed","Lust","Anger","Gluttony","Envy","Sloth","Fear","Dishonesty","Selfishness"];
+      const [selected, setSelected] = useState([]);
+
+      const toggle = (d) => setSelected(prev => prev.includes(d) ? prev.filter(i => i !== d) : [...prev, d]);
+
+      return (
+        <div className="flex flex-wrap gap-2">
+          {defects.map(d => (
+            <button
+              key={d}
+              onClick={() => toggle(d)}
+              className={`px-4 py-2 text-sm sm:text-base rounded-full transition-all border ${
+                selected.includes(d)
+                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      );
+    };
+
+    const SanityCheck = () => {
+      const [msg, setMsg] = useState("");
+
+      const handleBreathe = () => {
+        setMsg("Just breathe. This moment will pass.");
+        setTimeout(() => setMsg(""), 4000);
+      };
+      const handleSponsor = () => {
+        setMsg("We call to break the isolation. To get out of our own head.");
+        setTimeout(() => setMsg(""), 5000);
+      };
+
+      return (
+        <div className="bg-slate-800 p-5 rounded-lg border-l-4 border-emerald-500 relative overflow-hidden">
+          {msg && (
+            <div className="absolute inset-0 bg-emerald-900/95 flex items-center justify-center animate-in fade-in px-4 text-center">
+              <span className="font-bold text-emerald-100 leading-snug">{msg}</span>
+            </div>
+          )}
+          <p className="text-slate-300 italic mb-4">"I can't fix this, but I know a Power that can."</p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={handleBreathe} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-700 rounded-lg text-sm font-medium hover:bg-slate-600 active:scale-95 transition-all text-slate-200">
+              <Wind size={16} /> Breathe
+            </button>
+            <button onClick={handleSponsor} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-700 rounded-lg text-sm font-medium hover:bg-slate-600 active:scale-95 transition-all text-slate-200">
+              <Phone size={16} /> Call Sponsor
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    const ServiceTools = () => (
+      <div className="flex flex-col sm:flex-row gap-3">
+        <a
+          href="https://www.google.com/search?q=AA+meetings+near+me"
+          target="_blank" rel="noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 p-4 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-all group"
+        >
+          <div className="bg-indigo-500/20 p-2 rounded-full group-hover:bg-indigo-500/30 transition-colors">
+            <Search size={20} className="text-indigo-400" />
+          </div>
+          <span className="text-slate-300 font-medium">Find Meetings</span>
+        </a>
+        <a
+          href="https://www.google.com/search?q=volunteer+opportunities+near+me"
+          target="_blank" rel="noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 p-4 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-all group"
+        >
+          <div className="bg-emerald-500/20 p-2 rounded-full group-hover:bg-emerald-500/30 transition-colors">
+            <Gift size={20} className="text-emerald-400" />
+          </div>
+          <span className="text-slate-300 font-medium">Volunteer</span>
+        </a>
+      </div>
+    );
+
+    // ─── TOOL FACTORY ─────────────────────────────────────────────────────────────
+    const ToolRenderer = ({ type, id }) => {
+      switch (type) {
+        case 'journal':
+          return <ListBuilder placeholder="What felt unmanageable today?" storageKey={`step-${id}-journal`} />;
+        case 'sanity_check':
+          return <SanityCheck />;
+        case 'god_box':
+          return <GodBox />;
+        case 'list_builder':
+          return <ListBuilder placeholder="Add a name or institution..." storageKey={`step-${id}-resentments`} />;
+        case 'confession_prompt':
+          return (
+            <div className="space-y-4 text-center p-4 bg-slate-800/50 rounded-xl">
+              <div className="inline-block p-4 bg-indigo-900/30 rounded-full mb-2 border border-indigo-500/20">
+                <Mic size={24} className="text-indigo-400" />
+              </div>
+              <p className="text-slate-300 text-sm sm:text-base font-medium">Find a safe person. Read your Step 4 list to them.</p>
+              <p className="text-slate-500 text-xs">"We are only as sick as our secrets."</p>
+            </div>
+          );
+        case 'defect_toggle':
+          return <DefectToggle />;
+        case 'humility_card':
+          return (
+            <div className="p-6 bg-gradient-to-br from-indigo-950 to-slate-900 rounded-xl border border-indigo-500/30 text-center shadow-lg">
+              <h4 className="text-xl font-serif text-indigo-200 mb-4 tracking-wide">The Humility Prayer</h4>
+              <p className="text-slate-300 leading-relaxed text-lg font-light">"God, direct my thinking today so that it be divorced from self-pity, dishonest or self-seeking motives."</p>
+            </div>
+          );
+        case 'amends_list':
+          return <ListBuilder placeholder="Name of person harmed..." storageKey={`step-${id}-amends`} />;
+        case 'action_tracker':
+          return <ListBuilder placeholder="Log an amends made..." storageKey={`step-${id}-action`} />;
+        case 'daily_check':
+          return (
+            <div className="space-y-3">
+              {["Was I resentful?","Was I selfish?","Was I dishonest?","Did I owe an apology?"].map((q, i) => (
+                <label key={i} className="flex items-center gap-4 p-4 bg-slate-800 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors border border-transparent hover:border-slate-600">
+                  <input type="checkbox" className="w-5 h-5 rounded border-slate-600 text-indigo-600 bg-slate-700 focus:ring-offset-slate-900 focus:ring-indigo-500" />
+                  <span className="text-slate-300 text-base">{q}</span>
+                </label>
+              ))}
+            </div>
+          );
+        case 'breathing':
+          return <BreathingTool />;
+        case 'share_card':
+          return <ServiceTools />;
+        default:
+          return null;
+      }
+    };
+
+    // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+    function TwelveApp() {
+      const [activeStep, setActiveStep] = useState(null);
+
+      // Scroll lock when modal is open
+      useEffect(() => {
+        document.body.style.overflow = activeStep ? 'hidden' : 'unset';
+        return () => { document.body.style.overflow = 'unset'; };
+      }, [activeStep]);
+
+      // Escape key to close modal
+      useEffect(() => {
+        const handler = (e) => e.key === 'Escape' && setActiveStep(null);
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+      }, []);
+
+      const handleShare = async () => {
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: 'Twelve',
+              text: 'Recovery tools for friends, family, and addicts.',
+              url: window.location.href,
+            });
+          } catch (err) {
+            console.log('Share canceled');
+          }
+        } else {
+          const el = document.createElement('textarea');
+          el.value = window.location.href;
+          document.body.appendChild(el);
+          el.select();
+          document.execCommand('copy');
+          document.body.removeChild(el);
+          alert("Link copied to clipboard");
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
+
+          {/* HEADER */}
+          <header className="fixed top-0 w-full z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/50">
+            <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => setActiveStep(null)}>
+                <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:scale-105 transition-transform">
+                  <span className="font-bold text-white text-lg">12</span>
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-white">Twelve</h1>
+              </div>
+              <div className="hidden sm:block text-xs font-semibold px-4 py-1.5 bg-slate-900 rounded-full text-indigo-400 border border-indigo-500/20 tracking-wide uppercase">
+                One Day at a Time
+              </div>
+            </div>
+          </header>
+
+          {/* MAIN */}
+          <main className="flex-grow pt-28 pb-32 px-4 sm:px-6 max-w-4xl mx-auto w-full">
+
+            {/* Intro */}
+            <div className="mb-10 p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-indigo-900/30 to-slate-900/30 border border-indigo-500/10 shadow-xl">
+              <h2 className="text-2xl font-bold mb-3 text-white">Welcome Home.</h2>
+              <p className="text-slate-400 leading-relaxed text-lg">
+                Whether you are struggling with addiction or love someone who is, this toolkit is for you.
+                Tap a step below to find clarity, peace, and practical tools.
+              </p>
+            </div>
+
+            {/* Steps Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {STEPS_DATA.map((step) => (
+                <div
+                  key={step.id}
+                  onClick={() => setActiveStep(step)}
+                  className="group relative overflow-hidden bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/30 rounded-2xl p-6 cursor-pointer transition-all duration-300 active:scale-[0.98] shadow-lg hover:shadow-indigo-500/10"
+                >
+                  <div className="absolute -top-4 -right-4 text-[100px] font-black text-slate-800 opacity-20 group-hover:opacity-10 group-hover:scale-110 transition-all select-none pointer-events-none">
+                    {step.id}
+                  </div>
+                  <div className="relative z-10 flex flex-col h-full">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="text-indigo-400 text-xs font-bold uppercase tracking-wider bg-indigo-500/10 px-2 py-1 rounded">Step {step.id}</div>
+                    </div>
+                    <h3 className="text-2xl font-bold text-slate-100 mb-2 group-hover:text-indigo-200 transition-colors">{step.title}</h3>
+                    <p className="text-slate-500 text-sm leading-relaxed line-clamp-2">{step.step}</p>
+                    <div className="mt-auto pt-6 flex items-center text-xs font-bold text-indigo-400 opacity-60 group-hover:opacity-100 transition-opacity uppercase tracking-widest">
+                      Open Tool <ChevronRight size={14} className="ml-1 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </main>
+
+          {/* MODAL */}
+          {activeStep && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 sm:backdrop-blur-sm">
+              <div
+                className="absolute inset-0 bg-slate-950/80 sm:bg-slate-950/60 transition-opacity duration-300"
+                onClick={() => setActiveStep(null)}
+              />
+              <div className="relative w-full h-full sm:h-auto sm:max-h-[85vh] sm:max-w-lg bg-slate-950 sm:bg-slate-900 sm:rounded-3xl border-t sm:border border-slate-700 shadow-2xl flex flex-col animate-in slide-in-from-bottom-5 sm:zoom-in-95 duration-200">
+
+                {/* Modal Header */}
+                <div className="flex-none px-6 py-5 border-b border-slate-800 flex justify-between items-center bg-slate-950 sm:bg-slate-900 sticky top-0 z-10 sm:rounded-t-3xl">
+                  <div>
+                    <span className="text-indigo-500 text-xs font-bold uppercase tracking-widest block mb-1">Step {activeStep.id}</span>
+                    <h2 className="text-2xl font-bold text-white">{activeStep.title}</h2>
+                  </div>
+                  <button
+                    onClick={() => setActiveStep(null)}
+                    className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white transition-colors"
+                    aria-label="Close"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-20 sm:pb-6">
+
+                  <section className="animate-in slide-in-from-bottom-2 duration-300 delay-100">
+                    <div className="flex items-center gap-2 mb-3 text-slate-400">
+                      <BookOpen size={18} />
+                      <span className="text-xs font-bold uppercase tracking-wide">The Principle</span>
+                    </div>
+                    <p className="text-xl sm:text-2xl text-slate-200 leading-relaxed font-semibold">"{activeStep.step}"</p>
+                  </section>
+
+                  <section className="bg-slate-800/40 p-5 rounded-xl border border-slate-800 animate-in slide-in-from-bottom-2 duration-300 delay-200">
+                    <div className="flex items-center gap-2 mb-2 text-slate-500">
+                      <Shield size={16} />
+                      <span className="text-xs font-bold uppercase tracking-wide">Tradition {activeStep.id}</span>
+                    </div>
+                    <p className="text-sm sm:text-base text-slate-400 italic leading-relaxed">"{activeStep.tradition}"</p>
+                  </section>
+
+                  <section className="animate-in slide-in-from-bottom-2 duration-300 delay-300">
+                    <div className="flex items-center gap-2 mb-4 text-emerald-400">
+                      <PenTool size={18} />
+                      <span className="text-xs font-bold uppercase tracking-wide">The Work: {activeStep.toolTitle}</span>
+                    </div>
+                    <p className="text-sm text-slate-400 mb-4">{activeStep.toolDesc}</p>
+                    <div className="bg-slate-950 sm:bg-slate-950/50 border border-slate-800 rounded-2xl p-1 sm:p-5 shadow-inner">
+                      <ToolRenderer type={activeStep.toolType} id={activeStep.id} />
+                    </div>
+                  </section>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="hidden sm:block flex-none p-4 bg-slate-900 border-t border-slate-800 text-center sm:rounded-b-3xl">
+                  <span className="text-xs text-slate-600">Progress is progress, no matter how small.</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FOOTER BAR */}
+          <footer className="fixed bottom-0 w-full z-40 bg-slate-950/80 backdrop-blur-xl border-t border-slate-800/50 pb-safe">
+            <div className="max-w-4xl mx-auto px-6 py-4 flex flex-row items-center justify-between gap-4">
+              <button
+                onClick={handleShare}
+                className="flex items-center justify-center gap-2 text-slate-400 hover:text-white transition-colors text-sm font-medium px-4 py-2 rounded-full hover:bg-slate-800"
+              >
+                <Share2 size={20} />
+                <span className="hidden sm:inline">Share App</span>
+              </button>
+              <a
+                href="https://cash.app/$unixarcade"
+                target="_blank" rel="noopener noreferrer"
+                className="flex-shrink-0 flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-full font-bold text-sm transition-all shadow-[0_4px_20px_rgba(99,102,241,0.4)] active:scale-95 hover:-translate-y-0.5"
+              >
+                <Heart size={16} fill="currentColor" className="text-white" />
+                <span>Support $unixarcade</span>
+              </a>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // ─── MOUNT ────────────────────────────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TwelveApp />);
+  </script>
+</body>
+</html>
